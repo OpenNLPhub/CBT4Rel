@@ -40,6 +40,6 @@ class CBT(nn.Module):
         # batch_size * max_seq_len * rel_num
 
         F = lambda x : x.squeeze(-1)
-        # batch_size * max_seq_len
+        # batch_size * max_seq_len 
         return F(sub_start), F(sub_end), obj_start, obj_end
 

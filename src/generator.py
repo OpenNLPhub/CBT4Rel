@@ -12,7 +12,7 @@ from random import choice
 from utils import transform_subs,transform_objs ,transform_Csubs
 RANDOM_SEED = 2020
 
-class HBTDataSet(object):
+class CBTDataSet(object):
     def __init__(self,file_path,tokenizer,rel_list,batch_size):
         with open(file_path , 'r' , encoding = 'utf-8') as f:
             self.data=json.load(f)
