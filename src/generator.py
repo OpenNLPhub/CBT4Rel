@@ -64,7 +64,14 @@ class HBTDataSet(object):
                     sub_pos = transform_Csubs(input_ids, attention_mask, Csub, tokenize)
                     Obj_start,Obj_end = transform_objs(input_ids, attention_mask, RO, tokenize,self.num_rels)
                     
-                    yield input_ids, attention_mask, Sub_start, Sub_end, sub_pos, Obj_start, Obj_end
+                    F = lambda x : torch.Tensor(x).long()
+                    input_ids = F(input_ids)
+                    attention_mask = F(attention_mask)
+                    sub_pos = F(sub_pos)
+
+                    F = lambda x: torch.Tensor(x).float()
+                    
+                    yield input_ids, attention_mask, F(Sub_start), F(Sub_end), sub_pos, F(Obj_start), F(Obj_end)
                     Text, Subs, Csub, RO = [],[],[],[]
 
 if __name__ == '__main__':    
@@ -88,7 +95,8 @@ if __name__ == '__main__':
 
 
     for data in data_loader:
-        pass
+        import pdb; pdb.set_trace()
+        x,y,z,a,b,c,d = data
 
     
     
