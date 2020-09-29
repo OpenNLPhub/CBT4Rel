@@ -18,7 +18,7 @@ class CBT(nn.Module):
     def forward(self,x):
         input_ids, attention_mask, sub_pos = x;
         # input_ids, attention_mask, sub_pos : batch_size * max_seq_len
-        xx = self.bert(input_ids = input_ids, attention_mask = attention_mask)
+        xx = self.bert(input_ids = input_ids, attention_mask = attention_mask)[0]
         # batch_size * max_seq_len * word_emb_dim
 
         sub_start = torch.sigmoid(self.subject_start_tagger(xx))
@@ -31,7 +31,7 @@ class CBT(nn.Module):
             / torch.sum(sub_attention_mask ,axis = 1)
         # batch_size * word_emb_dim / batch_size * word_emb_dim
         
-        sub_feature = token_feature.unsqueeze(1).expand(-1,xx.shape[1],-1)
+        sub_feature = sub_feature.unsqueeze(1).expand(-1,xx.shape[1],-1)
 
         token_feature = xx + sub_feature
 

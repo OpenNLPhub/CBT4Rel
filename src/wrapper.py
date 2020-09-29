@@ -2,6 +2,7 @@
 
 
 import torch
+import numpy as np
 from transformers import BertModel
 import config
 import torch.optim as optim
@@ -12,13 +13,14 @@ from copy import deepcopy
 from utils import confusion_matrix,evaluate
 class wrapper(object):
 
-    def __init__(self):
-        self.device = torch.device( 'cuda:1' if torch.cuda.is_available() else 'cpu')
-        self.bert = BertModel.from_pretrained(config.BertModel)
-        
-        self.model =  CBT(self.bert).to(self.device)
+    def __init__(self,rel_list):
+        self.rel_list = rel_list
 
-        self.epoches = 20
+        self.device = torch.device( 'cuda:1' if torch.cuda.is_available() else 'cpu')
+        self.bert = BertModel.from_pretrained(config.BertPath)
+        
+        self.model =  CBT(self.bert,len(self.rel_list)).to(self.device)
+        self.epoches = 100
         self.lr = 1e-5
 
         self.best_model = None
@@ -43,10 +45,10 @@ class wrapper(object):
 
         return sub_start_loss + sub_end_loss + obj_start_loss + obj_end_loss
 
-    def _decode(self,x ,x_, attention_mask,threshold = 0.5):
+    def _decode(self,x,x_,attention_mask,threshold = 0.5):
         mask = attention_mask == 1
         y = x.masked_select(mask).cpu().long().numpy()
-        y_ = y.masked_select(mask).cpu().numpy()
+        y_ = x_.masked_select(mask).cpu().numpy()
         y_ = np.where(y_ > threshold ,1 ,0)
         # np.array vector float
         return confusion_matrix(y,y_)
@@ -56,23 +58,26 @@ class wrapper(object):
         d = {}
         Sub_start, Sub_end, Obj_start, Obj_end = x
         pred_sub_start, pred_sub_end, pred_obj_start, pred_obj_end = x_
-        d['sub_start'] = self._decode(Sub_start, pred_sub_start)
-        d['sub_end'] = self._decode(Sub_end, pred_sub_end)
-        d['obj_start'] = self._decode(Obj_start, pred_obj_start)
-        d['obj_end'] = self._decode(Obj_end, pred_obj_end)
+        d['sub_start'] = self._decode(Sub_start, pred_sub_start,attention_mask)
+        d['sub_end'] = self._decode(Sub_end, pred_sub_end,attention_mask)
+
+        #Obj batch_size * max_seq_len * rel_num
+        attention_mask_ = attention_mask.unsqueeze(-1).expand(-1,-1,pred_obj_start.shape[-1])
+        d['obj_start'] = self._decode(Obj_start, pred_obj_start,attention_mask_)
+        d['obj_end'] = self._decode(Obj_end, pred_obj_end,attention_mask_)
         return d
 
         
 
-    def train(self,train_dataloader,dev_dataloader): 
+    def train(self,train_dataloader, dev_dataloader): 
         for epoch in range(1,self.epoches+1):
             self.model.train()
             # self.optimizer.
             for ix,item in enumerate(train_dataloader):
-                self.optimizer.zero_grad()
+                
 
                 input_ids, attention_mask, Sub_start, Sub_end, sub_pos\
-                    Obj_start, Obj_end = item
+                    ,Obj_start, Obj_end = [i.to(self.device) for i in item]
                 
                 pred_sub_start, pred_sub_end, pred_obj_start, pred_obj_end \
                     = self.model([input_ids,attention_mask,sub_pos])
@@ -80,12 +85,14 @@ class wrapper(object):
                 x = [Sub_start, Sub_end, Obj_start, Obj_end]
                 x_ = [pred_sub_start, pred_sub_end, pred_obj_start, pred_obj_end]
                 loss = self._cal_loss(x,x_,attention_mask)
+                
+                self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
                 if (ix+1) % self.print_step == 0 or ix == len(train_dataloader) - 1:
                     logger.info("[In Training] Epoch : {} \t Step/All_Step : {}/{} \t Loss of every word : {}"\
-                        .format(epoch,(ix+1),len(train_dataloader),loss.item())
+                        .format(epoch,(ix+1),len(train_dataloader),loss.item()))
             
             #validation
             self.model.eval()
@@ -96,10 +103,11 @@ class wrapper(object):
                     'sub_start' : [],
                     'sub_end' : []
                 }
-
+                val_loss = []
+                
                 for ix,item in enumerate(dev_dataloader):
                     input_ids, attention_mask, Sub_start, Sub_end\
-                        ,sub_pos, Obj_start, Obj_end = item
+                        ,sub_pos, Obj_start, Obj_end = [i.to(self.device) for i in item]
                     
                     pred_sub_start, pred_sub_end, pred_obj_start, pred_obj_end\
                         = self.model([input_ids, attention_mask, sub_pos])
@@ -107,28 +115,32 @@ class wrapper(object):
                     x = [Sub_start, Sub_end, Obj_start, Obj_end]
                     x_ = [pred_sub_start, pred_sub_end, pred_obj_start, pred_obj_end]
                     loss = self._cal_loss(x, x_, attention_mask)
+                    val_loss.append(loss.item())
 
-                    if (ix+1) % (self.print_step * 2) == 0 or ix == len(dev_dataloader) - 1:
+                    if (ix+1) % (self.print_step) == 0 or ix == len(dev_dataloader) - 1:
                         logger.info("[In Validation] Step/All_Step : {}/{} \t Loss of every word : {}"\
-                            .format((ix+1),len(dev_dataloader),loss.item))
+                            .format((ix+1),len(dev_dataloader),loss.item()))
                     
-                    if loss < self.best_loss:
-                        self.best_loss = loss
-                        self.best_model = deepcopy(self.model)
-                        logger.info("Best Model UpDate !")
-                
                     #decode
-                    dd = self._metric(x,x_)
+                    dd = self._metric(x,x_,attention_mask)
                     for key in d.keys():
                         d[key].append(dd[key])
 
-             
+            eval_loss = sum(val_loss) / len(val_loss)
+            if eval_loss < self.best_loss:
+                    self.best_loss = eval_loss
+                    self.best_model = deepcopy(self.model)
+                    logger.info("Best Model UpDate !")
+
             for key,value in d.items():
                 m =  list(zip(*value))
                 # m = [tn,fp,fn,tp]
+                m = [ sum(i) for i in m]
                 acc, prec, recall, f1 = evaluate(m)
                 logger.info("Epoch {} Validation: Label:{}\t Acc : {}\t Precision:{}\t Recall:{}\t f1-score:{}\t"\
                     .format(epoch,key,acc,prec,recall,f1))
+            
+            torch.cuda.empty_cache()
 
     def test(self,test_dataloader):
         self.best_model.eval()
@@ -141,7 +153,7 @@ class wrapper(object):
                 }
             for ix,item in enumerate(test_dataloader):
                 input_ids, attention_mask, Sub_start, Sub_end\
-                    ,sub_pos, Obj_start, Obj_end = item
+                    ,sub_pos, Obj_start, Obj_end = [i.to(self.device) for i in item]
                 
                 pred_sub_start, pred_sub_end, pred_obj_start, pred_obj_end\
                     = self.best_model([input_ids, attention_mask, sub_pos])
@@ -151,16 +163,17 @@ class wrapper(object):
                 loss = self._cal_loss(x, x_, attention_mask)
 
                 #decode
-                dd = self._metric(x,x_)
+                dd = self._metric(x,x_,attention_mask)
                 for key in d.keys():
                     d[key].append(dd[key])
          
         for key,value in d.items():
             m =  list(zip(*value))
             # m = [tn,fp,fn,tp]
+            m = [ sum(i) for i in m]
             acc, prec, recall, f1 = evaluate(m)
-            logger.info("Epoch {} Validation: Label:{}\t Acc : {}\t Precision:{}\t Recall:{}\t f1-score:{}\t"\
-                .format(epoch,key,acc,prec,recall,f1))
+            logger.info("Test: Label:{}\t Acc : {}\t Precision:{}\t Recall:{}\t f1-score:{}\t"\
+                .format(key,acc,prec,recall,f1))
 
     def load_model(self,PATH):
         self.model.load_state_dict(torch.load(PATH))

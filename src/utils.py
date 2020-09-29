@@ -6,8 +6,9 @@
 '''
 import numpy as np
 import re
+import torch
 from collections import Counter
-from sklearn.metrics import confusion_matrix
+from sklearn import metrics
 ''' ---------------- Generate Dataset ---------------- '''
 def find_index(a,b):
     l = len(b)
@@ -101,7 +102,7 @@ def binary_confusion_matrix_evaluate(y_true,y_pred):
     return acc,prec,recall,f1
 
 def confusion_matrix(y_true,y_pred):
-    return confusion_matrix(y_true,y_pred).ravel()
+    return metrics.confusion_matrix(y_true,y_pred).ravel()
 
 def evaluate(x):
     tn , fp , fn , tp = x
