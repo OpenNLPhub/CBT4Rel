@@ -65,7 +65,7 @@ The pure model performance
 
 Decoding Part is not finished. QAQ
 
-
+You can check the logger.py under the folder of log
 
 ## Training Tip
 
