@@ -61,11 +61,21 @@ The pure model performance
 | object_start_point  | 0.999 |   0.923   | 0.766  |  0.837   |
 |  object_end_point   | 0.999 |   0.927   | 0.764  |  0.838   |
 
+~~Decoding Part is not finished. QAQ~~
+
+You can check the logger.py under the folder of log for more detail training process.
 
 
-Decoding Part is not finished. QAQ
 
-You can check the logger.py under the folder of log
+|         | Precision | Recall | F1-score |
+| ------- | --------- | ------ | -------- |
+| End2End | 0.662     | 0.517  | 0.577    |
+|         |           |        |          |
+|         |           |        |          |
+
+In end2end test, model dosen't perform good as it descriped in Paper.
+
+I am still find the problem
 
 ## Training Tip
 
