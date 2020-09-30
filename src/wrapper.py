@@ -10,7 +10,10 @@ from model import CBT
 from utils import focal_loss
 from log import logger
 from copy import deepcopy
-from utils import confusion_matrix,evaluate
+from utils import confusion_matrix,evaluate,find_index
+import json
+
+
 class wrapper(object):
 
     def __init__(self,rel_list):
@@ -127,6 +130,7 @@ class wrapper(object):
                         d[key].append(dd[key])
 
             eval_loss = sum(val_loss) / len(val_loss)
+            logger.info("In Validation : The Average Loss is {}".format(eval_loss))
             if eval_loss < self.best_loss:
                     self.best_loss = eval_loss
                     self.best_model = deepcopy(self.model)
@@ -184,3 +188,108 @@ class wrapper(object):
     def save_model(self,PATH):
         torch.save(self.best_model.state_dict(),PATH)
         logger.info('save best model successfully')
+
+    
+    def extract_triple(self, data, tokenizer, filepath, threshold=0.5):
+        '''
+        data item{
+            "text":" ... ",
+            "triple_list": [[s,r,o],[s,r,o],[s,r,o],[s,r,o]]
+        }
+        '''
+        self.best_model.eval()
+        id2rel= { i:v for i,v  in enumerate(self.rel_list)}
+        tp = 0
+        a = 0
+        b = 0
+        for item in data:
+            text = item['text']
+            triple_lists = item['triple_list']
+            #process triple to string 
+            # convenient to equal
+
+            # y end2end test 
+            y = {}
+            y_ = []
+            ans_triple = []
+
+            for triple in triple_lists:
+                s,r,o = triple
+                s = tokenizer.encode(s, add_special_tokens = False)
+                o = tokenizer.encode(s, add_special_tokens = False)
+                r = r
+                t = " ".join([s,r,o])
+                y[t] = 1
+
+            input_ids_ , _ ,attention_mask_ =self.tokenizer(text, padding = True).values()
+            #input_ids:  max_seq_len
+            input_ids = torch.Tensor(input_ids_).long().unsqueeze(0)
+            attention_mask = torch.Tensor(attention_mask_).long().unsqueeze(0)
+            #input_ids: 1 * max_seq_len
+
+            # find subject, we need construct a fake sub_pos 
+            sub_pos = torch.zeros(input_ids.shape)
+            x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos]]
+            pred_sub_start, pred_sub_end, _, _ = self.best_model(x)
+            # 1 * max_seq_len
+            F = lambda x : x.cpu().squeeze(0).numpy()
+            pred_sub_start = np.where(F(pred_sub_start) > threshold, 1, 0).long()
+            pred_sub_end = np.where(F(pred_sub_end) > threshold, 1, 0).long()
+            # max_seq_len           
+            subject_pos = self._extract_entity(pred_sub_start, pred_sub_end)
+            
+            subject_token = [ ' '.join(input_ids_[i[0],i[1]+1]) for i in subject_pos]
+
+            #Use these subject to predict object
+            # find s ,r ,o
+            for ix,pos in enumerate(subject_pos):
+                s = subject_token[ix]
+                sub_pos_in = torch.zeros(input_ids.shape)
+                for i in range(pos[0],pos[0]+1):
+                    sub_pos_in[0][i] = 1
+                x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos_in]]
+                _, _, pred_obj_start, pred_obj_end = self.best_model(x)
+                # 1* max_seq_len * rel_num
+                pred_obj_start = np.where(F(pred_obj_start) > threshold, 1, 0).long()
+                pred_obj_end = np.where(F(pred_obj_end) > threshold, 1, 0).long()
+
+                for i,rel in id2rel.items():
+                    r = rel
+                    obj_pos = self._extract_entity(pred_obj_start[i],pred_obj_end[i])
+                    for pos in obj_pos:
+                        o = ' '.join(input_ids_[pos[0],pos[0]+1])
+                        y_.append(' '.join([s,r,o]))
+
+                        decode = lambda x:tokenizer.decode(x.split(' '))
+                        ans_triple.append({'subject':decode(s),'relation':r,'object':decode(o)})
+                    
+            #Summary all
+            a += len(y)
+            b += len(y_)
+            for i in y_:
+                if i in y:
+                    tp += 1
+        
+        recall = float(tp) / a 
+        precision = float(tp) / b
+        f1_score = 2*recall * precision / (recall + precision) if recall + precision == 0 else 0.
+
+        logger.info("Extract Entity : Precision : {} \t Recall : {} \t F1-Score : {}"\
+            .format(precision,recall,f1_score))
+        
+        #Store the Extracted Result
+        with open(filepath, 'w', encoding ='utf-8') as f:
+            json.dump(f,ans_triple)
+            
+
+    def _extract_entity(self, start, end):
+        a = []
+        for ix in range(start):
+            if start[ix]:
+                j = ix
+                while not end[j]:
+                    j += 1 
+                a.append(ix,j)
+        return a;
+            
+            
