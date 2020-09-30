@@ -12,11 +12,15 @@ from random import choice
 from utils import transform_subs,transform_objs ,transform_Csubs
 RANDOM_SEED = 2020
 
+def get_data(file_path):
+    with open(file_path, 'r', encoding = 'utf-8') as f:
+        data = json.load(f)
+    return data
+
 class CBTDataSet(object):
     def __init__(self,file_path,tokenizer,rel_list,batch_size):
-        with open(file_path , 'r' , encoding = 'utf-8') as f:
-            self.data=json.load(f)
-        
+        self.data = get_data(file_path)
+
         self.tokenizer = tokenizer
         
         self.rel2id = { rel:i for i,rel in enumerate(rel_list)}
@@ -72,6 +76,7 @@ class CBTDataSet(object):
                 
                 yield input_ids, attention_mask, F(Sub_start), F(Sub_end), sub_pos, F(Obj_start), F(Obj_end)
                 Text, Subs, Csub, RO = [],[],[],[]
+
 
 if __name__ == '__main__':    
     '''

@@ -26,7 +26,7 @@ class wrapper(object):
         self.epoches = 100
         self.lr = 1e-5
 
-        self.best_model = None
+        self.best_model = CBT(self.bert,len(self.rel_list)).to(self.device)
         self.best_loss = 1e12
         self.print_step = 15
         self.optimizer = optim.Adam(self.model.parameters(),lr=self.lr)
@@ -202,94 +202,103 @@ class wrapper(object):
         tp = 0
         a = 0
         b = 0
-        for item in data:
-            text = item['text']
-            triple_lists = item['triple_list']
-            #process triple to string 
-            # convenient to equal
+        tostr =  lambda x : ' '.join([ str(i) for i in x])
+        with torch.no_grad():
+            for item in data:
+                text = item['text']
+                triple_lists = item['triple_list']
+                #process triple to string 
+                # convenient to equal
 
-            # y end2end test 
-            y = {}
-            y_ = []
-            ans_triple = []
+                # y end2end test 
+                y = {}
+                y_ = []
+                ans_triple = []
 
-            for triple in triple_lists:
-                s,r,o = triple
-                s = tokenizer.encode(s, add_special_tokens = False)
-                o = tokenizer.encode(s, add_special_tokens = False)
-                r = r
-                t = " ".join([s,r,o])
-                y[t] = 1
+                for triple in triple_lists:
+                    s,r,o = triple
+                    s = tokenizer.encode(s, add_special_tokens = False)
+                    o = tokenizer.encode(o, add_special_tokens = False)
+                    r = r
+                    t = " ".join([tostr(s),r,tostr(o)])
+                    y[t] = 1
 
-            input_ids_ , _ ,attention_mask_ =self.tokenizer(text, padding = True).values()
-            #input_ids:  max_seq_len
-            input_ids = torch.Tensor(input_ids_).long().unsqueeze(0)
-            attention_mask = torch.Tensor(attention_mask_).long().unsqueeze(0)
-            #input_ids: 1 * max_seq_len
+                input_ids_ , _ ,attention_mask_ =tokenizer(text, padding = True).values()
+                #input_ids:  max_seq_len
+                input_ids = torch.Tensor(input_ids_).long().unsqueeze(0)
+                attention_mask = torch.Tensor(attention_mask_).long().unsqueeze(0)
+                #input_ids: 1 * max_seq_len
 
-            # find subject, we need construct a fake sub_pos 
-            sub_pos = torch.zeros(input_ids.shape)
-            x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos]]
-            pred_sub_start, pred_sub_end, _, _ = self.best_model(x)
-            # 1 * max_seq_len
-            F = lambda x : x.cpu().squeeze(0).numpy()
-            pred_sub_start = np.where(F(pred_sub_start) > threshold, 1, 0).long()
-            pred_sub_end = np.where(F(pred_sub_end) > threshold, 1, 0).long()
-            # max_seq_len           
-            subject_pos = self._extract_entity(pred_sub_start, pred_sub_end)
-            
-            subject_token = [ ' '.join(input_ids_[i[0],i[1]+1]) for i in subject_pos]
+                # find subject, we need construct a fake sub_pos 
+                sub_pos = torch.zeros(input_ids.shape)
+                x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos]]
+                pred_sub_start, pred_sub_end, _, _ = self.best_model(x)
+                # 1 * max_seq_len
+                F = lambda x : x.cpu().squeeze(0).numpy()
 
-            #Use these subject to predict object
-            # find s ,r ,o
-            for ix,pos in enumerate(subject_pos):
-                s = subject_token[ix]
-                sub_pos_in = torch.zeros(input_ids.shape)
-                for i in range(pos[0],pos[0]+1):
-                    sub_pos_in[0][i] = 1
-                x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos_in]]
-                _, _, pred_obj_start, pred_obj_end = self.best_model(x)
-                # 1* max_seq_len * rel_num
-                pred_obj_start = np.where(F(pred_obj_start) > threshold, 1, 0).long()
-                pred_obj_end = np.where(F(pred_obj_end) > threshold, 1, 0).long()
+                pred_sub_start = np.where(F(pred_sub_start) > threshold, 1, 0)
+                pred_sub_end = np.where(F(pred_sub_end) > threshold, 1, 0)
+                # max_seq_len           
+                subject_pos = self._extract_entity(pred_sub_start, pred_sub_end)
+                
+                subject_token = [ tostr(input_ids_[i[0]:i[1]+1]) for i in subject_pos]
 
-                for i,rel in id2rel.items():
-                    r = rel
-                    obj_pos = self._extract_entity(pred_obj_start[i],pred_obj_end[i])
-                    for pos in obj_pos:
-                        o = ' '.join(input_ids_[pos[0],pos[0]+1])
-                        y_.append(' '.join([s,r,o]))
+                #Use these subject to predict object
+                # find s ,r ,o
+                for ix,pos in enumerate(subject_pos):
+                    s = subject_token[ix]
+                    sub_pos_in = torch.zeros(input_ids.shape)
+                    for i in range(pos[0],pos[0]+1):
+                        sub_pos_in[0][i] = 1
+                    x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos_in]]
+                    _, _, pred_obj_start, pred_obj_end = self.best_model(x)
+                    # 1* max_seq_len * rel_num
+                    pred_obj_start = np.where(F(pred_obj_start) > threshold, 1, 0)
+                    pred_obj_end = np.where(F(pred_obj_end) > threshold, 1, 0)
 
-                        decode = lambda x:tokenizer.decode(x.split(' '))
-                        ans_triple.append({'subject':decode(s),'relation':r,'object':decode(o)})
-                    
-            #Summary all
-            a += len(y)
-            b += len(y_)
-            for i in y_:
-                if i in y:
-                    tp += 1
+                    for i,rel in id2rel.items():
+                        r = rel
+                        obj_pos = self._extract_entity(pred_obj_start[:,i],pred_obj_end[:,i])
+                        for pos in obj_pos:
+                            o = tostr(input_ids_[pos[0]:pos[0]+1])
+                            y_.append(' '.join([s,r,o]))
+
+                            decode = lambda x:tokenizer.decode(x.split(' '))
+                            ans_triple.append({'subject':decode(s),'relation':r,'object':decode(o)})
+                        
+                #Summary all
+                a += len(y)
+                b += len(y_)
+                for i in y_:
+                    if i in y:
+                        tp += 1
         
         recall = float(tp) / a 
         precision = float(tp) / b
-        f1_score = 2*recall * precision / (recall + precision) if recall + precision == 0 else 0.
+        f1_score = float(2 * recall * precision) / (recall + precision) if recall + precision != 0 else 0.
 
         logger.info("Extract Entity : Precision : {} \t Recall : {} \t F1-Score : {}"\
             .format(precision,recall,f1_score))
         
         #Store the Extracted Result
         with open(filepath, 'w', encoding ='utf-8') as f:
-            json.dump(f,ans_triple)
+            json.dump(ans_triple,f)
             
 
     def _extract_entity(self, start, end):
+        assert len(start) ==  len(end)
         a = []
-        for ix in range(start):
-            if start[ix]:
+        for ix,v in enumerate(start):
+            if v:
                 j = ix
                 while not end[j]:
-                    j += 1 
-                a.append(ix,j)
+                    j += 1
+                    if not j<len(end):
+                        break
+                if j == len(end):
+                    continue
+                a.append((ix,j))
         return a;
+    
             
             

@@ -13,9 +13,10 @@ BertPath = os.path.join(cwd,'data','static','bert-base-uncased')
 
 RelPath = os.path.join(cwd, 'data', 'WebNLG', 'relation_type.txt')
 TrainPath = os.path.join(cwd, 'data', 'WebNLG', 'train.json')
-DevPath = os.path.join(cwd, 'data', 'WebNLG', 'dev_.json')
+DevPath = os.path.join(cwd, 'data', 'WebNLG', 'dev.json')
 TestPath = os.path.join(cwd, 'data', 'WebNLG', 'test.json')
 
+ResultPath = os.path.join(cwd, 'data', 'result.json')
 ModelPath = os.path.join(cwd, 'data', 'model', 'cbt.pth')
 
 batch_size = 32

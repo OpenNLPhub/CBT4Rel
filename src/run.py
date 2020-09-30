@@ -1,12 +1,11 @@
 import config
-from generator import CBTDataSet
+from generator import CBTDataSet,get_data
 from transformers import BertTokenizer
 from wrapper import wrapper
 import os
 import torch
 import numpy as np
 import random
-
 
 seed = 1234
 torch.manual_seed(seed)
@@ -29,9 +28,11 @@ if __name__ == '__main__':
         model.save_model(model_path)
     else:
         model.load_model(model_path)
-        
+    
     model.test(test_dataloader)
-
+    data = get_data(config.TestPath)
+    model.extract_triple(data, tokenizer, config.ResultPath)
+    
 
 
     
