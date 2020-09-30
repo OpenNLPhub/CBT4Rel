@@ -229,10 +229,8 @@ class wrapper(object):
                 attention_mask = torch.Tensor(attention_mask_).long().unsqueeze(0)
                 #input_ids: 1 * max_seq_len
 
-                # find subject, we need construct a fake sub_pos 
-                sub_pos = torch.zeros(input_ids.shape)
-                x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos]]
-                pred_sub_start, pred_sub_end, _, _ = self.best_model(x)
+                x = [ i.to(self.device) for i in [input_ids,attention_mask]]
+                pred_sub_start, pred_sub_end = self.best_model.subject_tag(x)
                 # 1 * max_seq_len
                 F = lambda x : x.cpu().squeeze(0).numpy()
 
@@ -251,7 +249,7 @@ class wrapper(object):
                     for i in range(pos[0],pos[0]+1):
                         sub_pos_in[0][i] = 1
                     x = [ i.to(self.device) for i in [input_ids,attention_mask,sub_pos_in]]
-                    _, _, pred_obj_start, pred_obj_end = self.best_model(x)
+                    pred_obj_start, pred_obj_end = self.best_model.object_tag(x)
                     # 1* max_seq_len * rel_num
                     pred_obj_start = np.where(F(pred_obj_start) > threshold, 1, 0)
                     pred_obj_end = np.where(F(pred_obj_end) > threshold, 1, 0)
